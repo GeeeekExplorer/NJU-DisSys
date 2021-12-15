@@ -14,8 +14,8 @@
 
 ```go
 type Raft struct {
-    // ...
-    status int
+    // fields in the paper
+    role int
     timer  *time.Timer
 }
 ```
@@ -82,7 +82,7 @@ func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool)
 }
 ```
 
-发送者批量请求逻辑，等待所有发收顺利或者超时（`select`中的`break`只能跳出`select`而非`loop`，因此设法把`break`写进`loop`里），之后处理**剩余**事务：
+发送者批量请求逻辑，等待所有发收顺利或者超时（`select`中的`break`只能跳出`select`而非`loop`，因此设法把`break`写进`loop`里），之后处理**剩余**事务（轮询结束才能处理的事务，例如竞选成功或日志提交）：
 
 ```go
 ch := make(chan bool)
@@ -94,28 +94,26 @@ for i := 0; i < n; i++ {
 }
 
 // wait all goroutines go well or time out
-for i := 0; i < n; i++ {
-    if i != rf.me {
-        select {
-        case <-time.After(checkTimeout):
-        case <-ch:
-            continue
-        }
-        break // only execute after time out
+for i := 1; i < n; i++ {
+    select {
+    case <-time.After(checkTimeout):
+    case <-ch:
+        continue
     }
+    break // only execute after time out
 }
 
 // handle the remaining transactions
 // e.g. decide whether to become a leader
-// or find the appropriate index to submit
+// or find the appropriate index to commit
 ```
 
-在`Make()`函数中无限循环的`goroutine`：
+在`Make()`函数中无限循环的`goroutine`，计时器触发对于`FOLLOWER`只需变为`CANDIDATE`，对于`CANDIDATE`或`LEADER`，应用上面代码分别批量发送`RequestVote`或`AppendEntries`，等待顺利或超时，处理剩余事务：
 
 ```go
 go func() {
     for {
-        switch rf.status {
+        switch rf.role {
         case FOLLOWER:
             select {
             case <-time.After(checkTimeout):
