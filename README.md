@@ -46,9 +46,9 @@ func randTime() time.Duration {
 
 ## 模块设计
 
-Raft算法包含`RequestVote`和`AppendEntries`两种RPC，本项目将两种处理流程尽可能统一。
+Raft算法包含两种RPC，本项目将两种处理流程尽可能统一。
 
-定义RPC相关结构：
+定义`RPC`（具体是`RequestVote`或`AppendEntries`）相关结构：
 
 ```go
 type RPCArgs struct {
@@ -68,7 +68,7 @@ func (rf *Raft) RPC(args RPCArgs, reply *RPCReply) {
 }
 ```
 
-发送者单次请求逻辑，包含可以**立即处理响应**的部分逻辑，通过`channel`发送“顺利”（在不同语境下语义不同，对于`RequestVote`是获得投票，对于`AppendEntries`是得到响应）：
+发送者单次请求逻辑，包含可以**立即处理响应**的部分逻辑，通过`channel`发送**顺利**信号（在不同语境下顺利的语义不同，对于`RequestVote`是获得投票，对于`AppendEntries`是得到响应）：
 
 ```go
 func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool) {
@@ -82,14 +82,14 @@ func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool)
 }
 ```
 
-发送者批量请求逻辑，等待所有发收“顺利”或者超时（`select`中的`break`只能跳出`select`而非`loop`，因此设法把`break`写进`loop`里），之后处理剩余事务：
+发送者批量请求逻辑，等待所有发收顺利或者超时（`select`中的`break`只能跳出`select`而非`loop`，因此设法把`break`写进`loop`里），之后处理**剩余**事务：
 
 ```go
 ch := make(chan bool)
 for i := 0; i < n; i++ {
     if i != rf.me {
         // construct args and reply
-        go rf.sendRequestVote(i, args, &reply, ch)
+        go rf.sendRPC(i, args, &reply, ch)
     }
 }
 
@@ -110,7 +110,7 @@ for i := 0; i < n; i++ {
 // or find the appropriate index to submit
 ```
 
-在`Make()`函数中，创建无限循环的`goroutine`：
+在`Make()`函数中无限循环的`goroutine`：
 
 ```go
 go func() {
