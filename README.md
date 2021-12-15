@@ -14,36 +14,33 @@
 
 ```go
 type Raft struct {
-    ...
-	status           int
-	timer            *time.Timer
-	electionTimeout  time.Duration
-	heartbeatTimeout time.Duration
-	checkTimeout     time.Duration
+    // ...
+    status int
+    timer  *time.Timer
 }
 ```
 
 其他结构与论文描述一致。
 
-一些常量：
+一些常量和随机时间函数：
 
 ```go
 const (
-	FOLLOWER  int = 0
-	CANDIDATE int = 1
-	LEADER    int = 2
+    FOLLOWER  int = 0
+    CANDIDATE int = 1
+    LEADER    int = 2
 )
 
 const (
-	electionTimeoutMin = 300 * time.Millisecond
-	electionTimeoutMax = 600 * time.Millisecond
-	heartbeatTimeout   = 50 * time.Millisecond
-	checkTimeout       = 5 * time.Millisecond
+    electionTimeoutMin = 300 * time.Millisecond
+    electionTimeoutMax = 600 * time.Millisecond
+    heartbeatTimeout   = 50 * time.Millisecond
+    checkTimeout       = 5 * time.Millisecond
 )
 
 func randTime() time.Duration {
-	diff := (electionTimeoutMax - electionTimeoutMin).Milliseconds()
-	return electionTimeoutMin + time.Duration(rand.Intn(int(diff)))*time.Millisecond
+    diff := (electionTimeoutMax - electionTimeoutMin).Milliseconds()
+    return electionTimeoutMin + time.Duration(rand.Intn(int(diff)))*time.Millisecond
 }
 ```
 
@@ -51,11 +48,11 @@ func randTime() time.Duration {
 
 Raft算法包含`RequestVote`和`AppendEntries`两种RPC，本项目将两种处理流程尽可能统一。
 
-定义相关结构：
+定义RPC相关结构：
 
 ```go
 type RPCArgs struct {
-	// Your data here.
+    // Your data here.
 }
 
 type RPCReply struct {
@@ -67,7 +64,7 @@ type RPCReply struct {
 
 ```go
 func (rf *Raft) RPC(args RPCArgs, reply *RPCReply) {
-	// Your code here.
+    // Your code here.
 }
 ```
 
@@ -75,10 +72,10 @@ func (rf *Raft) RPC(args RPCArgs, reply *RPCReply) {
 
 ```go
 func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool) {
-	if !rf.peers[server].Call("Raft.RPCVote", args, reply) {
-		return
-	}
-	// handle the response immediately
+    if !rf.peers[server].Call("Raft.RPC", args, reply) {
+        return
+    }
+    // handle the response immediately
     // e.g. convert to follower if outdated
     // or update the leader's nextIndex
     // if reply goes well, then execute ch <- true
@@ -113,7 +110,7 @@ for i := 0; i < n; i++ {
 // or find the appropriate index to submit
 ```
 
-在`Make()`函数中，创建无限循环的`goroutines`：
+在`Make()`函数中，创建无限循环的`goroutine`：
 
 ```go
 go func() {
@@ -121,20 +118,20 @@ go func() {
         switch rf.status {
         case FOLLOWER:
             select {
-			case <-time.After(checkTimeout):
-			case <-rf.timer.C:
+            case <-time.After(checkTimeout):
+            case <-rf.timer.C:
                 // become candidate
-			}
+            }
         case CANDIDATE:
-			select {
-			case <-time.After(checkTimeout):
-			case <-rf.timer.C:
+            select {
+            case <-time.After(checkTimeout):
+            case <-rf.timer.C:
                 // run for election
             }
         case LEADER:
-			select {
-			case <-time.After(checkTimeout):
-			case <-rf.timer.C:
+            select {
+            case <-time.After(checkTimeout):
+            case <-rf.timer.C:
                 // manage log replication
             }
         }
