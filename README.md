@@ -15,8 +15,8 @@
 ```go
 type Raft struct {
     // fields in the paper
-    role int
-    timer  *time.Timer
+    role  int
+    timer *time.Timer
 }
 ```
 
@@ -26,9 +26,9 @@ type Raft struct {
 
 ```go
 const (
-    FOLLOWER  int = 0
-    CANDIDATE int = 1
-    LEADER    int = 2
+    FOLLOWER  = 0
+    CANDIDATE = 1
+    LEADER    = 2
 )
 
 const (
@@ -108,34 +108,27 @@ for i := 1; i < n; i++ {
 // or find the appropriate index to commit
 ```
 
-在`Make()`函数中无限循环的`goroutine`，计时器触发对于`FOLLOWER`只需变为`CANDIDATE`，对于`CANDIDATE`或`LEADER`，应用上面代码分别批量发送`RequestVote`或`AppendEntries`，等待顺利或超时，处理剩余事务：
+在`Make()`函数中两个无限循环的`goroutine`，一个定时检查日志应用情况，另一个计时器触发对于`FOLLOWER`只需变为`CANDIDATE`，对于`CANDIDATE`或`LEADER`，应用上面代码分别批量发送`RequestVote`或`AppendEntries`，等待顺利或超时，处理剩余事务：
 
 ```go
 go func() {
     for {
+        <-time.After(checkTimeout)
+        // check whether to apply log to state machine
+    }
+}()
+
+go func() {
+    for {
+        <-rf.timer.C
         switch rf.role {
         case FOLLOWER:
-            select {
-            case <-time.After(checkTimeout):
-            case <-rf.timer.C:
-                // become candidate
-            }
+            // become candidate
         case CANDIDATE:
-            select {
-            case <-time.After(checkTimeout):
-            case <-rf.timer.C:
-                // run for election
-            }
+            // run for election
         case LEADER:
-            select {
-            case <-time.After(checkTimeout):
-            case <-rf.timer.C:
-                // manage log replication
-            }
+            // manage log replication
         }
     }
 }()
 ```
-
-
-
