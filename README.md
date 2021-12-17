@@ -34,7 +34,7 @@ const (
 const (
     electionTimeoutMin = 300 * time.Millisecond
     electionTimeoutMax = 600 * time.Millisecond
-    heartbeatTimeout   = 50 * time.Millisecond
+    heartbeatTimeout   = 60 * time.Millisecond
     checkTimeout       = 5 * time.Millisecond
 )
 
@@ -112,14 +112,14 @@ for i := 1; i < n; i++ {
 
 ```go
 go func() {
-    for {
-        <-time.After(checkTimeout)
+    for rf.me != -1 {
+        time.Sleep(checkTimeout)
         // check whether to apply log to state machine
     }
 }()
 
 go func() {
-    for {
+    for rf.me != -1 {
         <-rf.timer.C
         switch rf.role {
         case FOLLOWER:
@@ -132,3 +132,11 @@ go func() {
     }
 }()
 ```
+
+在`Kill()`函数中执行`rf.me = -1`结束上面两个`goroutine`。
+
+## 注意事项
+
+1. 并发执行数据访问常加锁
+
+2. 修改非易失成员立即持久化
