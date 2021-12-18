@@ -2,7 +2,7 @@
 
 南京大学分布式系统Raft算法，本项目力求最简洁和最直观的实现。
 
-代码将在实验截止后开源，README已经给出大致框架。
+代码将在实验截止后开源，README已经给出大致框架，只需在注释中补充[论文](https://raft.github.io/raft.pdf)第四页内容即可。
 
 ## 运行说明
 
@@ -16,13 +16,14 @@
 type Raft struct {
     // fields in the paper
     role  int
+    votes int
     timer *time.Timer
 }
 ```
 
 其他结构与论文描述一致。
 
-一些常量和随机时间函数：
+一些常量：
 
 ```go
 const (
@@ -34,13 +35,26 @@ const (
 const (
     electionTimeoutMin = 300 * time.Millisecond
     electionTimeoutMax = 600 * time.Millisecond
-    heartbeatTimeout   = 60 * time.Millisecond
-    checkTimeout       = 5 * time.Millisecond
+    heartbeatTimeout   = 50 * time.Millisecond
+    checkTimeout       = 10 * time.Millisecond
 )
+```
 
+两个实用函数：
+```go
 func randTime() time.Duration {
     diff := (electionTimeoutMax - electionTimeoutMin).Milliseconds()
     return electionTimeoutMin + time.Duration(rand.Intn(int(diff)))*time.Millisecond
+}
+
+func wait(n int, ch chan bool) {
+    for i := 1; i < n; i++ {
+        select {
+        case <-ch:
+        case <-time.After(checkTimeout):
+            return
+        }
+    }
 }
 ```
 
@@ -68,7 +82,7 @@ func (rf *Raft) RPC(args RPCArgs, reply *RPCReply) {
 }
 ```
 
-发送者单次请求逻辑，包含可以**立即处理响应**的部分逻辑，通过`channel`发送**顺利**信号（在不同语境下顺利的语义不同，对于`RequestVote`是获得投票，对于`AppendEntries`是得到响应）：
+发送者单次请求逻辑，包含可以**立即处理响应**的部分逻辑，通过`channel`发送响应成功：
 
 ```go
 func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool) {
@@ -76,13 +90,14 @@ func (rf *Raft) sendRPC(server int, args RPCArgs, reply *RPCReply, ch chan bool)
         return
     }
     // handle the response immediately
-    // e.g. convert to follower if outdated
+    // e.g. convert to follower and return if outdated
+    // or increase the candidate's votes
     // or update the leader's nextIndex
-    // if reply goes well, then execute ch <- true
+    // finally execute ch <- true
 }
 ```
 
-发送者批量请求逻辑，等待所有发收顺利或者超时（`select`中的`break`只能跳出`select`而非`loop`，因此设法把`break`写进`loop`里），之后处理**剩余**事务（轮询结束才能处理的事务，例如竞选成功或日志提交）：
+发送者批量请求逻辑，等待所有发收结束或者超时，之后处理剩余事务（竞选成功或日志提交）：
 
 ```go
 ch := make(chan bool)
@@ -94,21 +109,14 @@ for i := 0; i < n; i++ {
 }
 
 // wait all goroutines go well or time out
-for i := 1; i < n; i++ {
-    select {
-    case <-time.After(checkTimeout):
-    case <-ch:
-        continue
-    }
-    break // only execute after time out
-}
+wait(n, ch)
 
 // handle the remaining transactions
 // e.g. decide whether to become a leader
 // or find the appropriate index to commit
 ```
 
-在`Make()`函数中两个无限循环的`goroutine`，一个定时检查日志应用情况，另一个计时器触发对于`FOLLOWER`只需变为`CANDIDATE`，对于`CANDIDATE`或`LEADER`，应用上面代码分别批量发送`RequestVote`或`AppendEntries`，等待顺利或超时，处理剩余事务：
+在`Make()`函数中两个无限循环的`goroutine`，一个定时检查日志应用情况，另一个计时器触发对于`FOLLOWER`只需变为`CANDIDATE`，对于`CANDIDATE`或`LEADER`执行上面代码逻辑：
 
 ```go
 go func() {
@@ -140,3 +148,19 @@ go func() {
 1. 并发执行数据访问常加锁
 
 2. 修改非易失成员立即持久化
+
+## 鲁棒测试
+
+成功通过一次测试并不是终点，多次运行仍然可能出错，可以在`shell`中定义如下函数：
+
+```shell
+run() {
+  go test
+  while [[ $? -ne 1 ]]
+  do
+    go test
+  done
+}
+```
+
+执行`run`命令无限测试直至失败，本项目通过了24小时的循环测试。
